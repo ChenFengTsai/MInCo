@@ -1,0 +1,15 @@
+cloudpickle==2.2.1
+dm-control==0.0.403778684
+glfw==2.5.5
+gym==0.21.0
+imageio==2.25.1
+matplotlib==3.4.2
+moviepy==1.0.3
+mujoco-py==2.1.2.14
+numpy==1.23.5
+scikit-video==1.1.11
+tensorboard==2.6.0
+torch==1.9.1
+torchvision==0.13.1
+tqdm==4.64.1
+wandb==0.13.10
