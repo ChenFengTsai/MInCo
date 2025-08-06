@@ -153,69 +153,146 @@ class RandomVideoSource(ImageSource):
         self.current_idx = 0
         self.reset()
 
+    # def build_arr(self):
+    #     if not self.total_frames:
+    #         self.total_frames = 0
+    #         self.arr = None
+    #         random.shuffle(self.filelist)
+    #         for fname in tqdm.tqdm(
+    #             self.filelist, desc="Loading videos for natural", position=0
+    #         ):
+    #             if self.grayscale:
+    #                 frames = skvideo.io.vread(fname, outputdict={"-pix_fmt": "gray"})
+    #             else:
+    #                 frames = skvideo.io.vread(fname)
+    #             local_arr = np.zeros(
+    #                 (frames.shape[0], self.shape[0], self.shape[1])
+    #                 + ((3,) if not self.grayscale else (1,))
+    #             )
+    #             for i in tqdm.tqdm(
+    #                 range(frames.shape[0]), desc="video frames", position=1
+    #             ):
+    #                 local_arr[i] = cv2.resize(
+    #                     frames[i], (self.shape[1], self.shape[0])
+    #                 )  ## THIS IS NOT A BUG! cv2 uses (width, height)
+    #             if self.arr is None:
+    #                 self.arr = local_arr
+    #             else:
+    #                 self.arr = np.concatenate([self.arr, local_arr], 0)
+    #             self.total_frames += local_arr.shape[0]
+    #     else:
+    #         self.arr = np.zeros(
+    #             (self.total_frames, self.shape[0], self.shape[1])
+    #             + ((3,) if not self.grayscale else (1,))
+    #         )
+    #         total_frame_i = 0
+    #         file_i = 0
+    #         with tqdm.tqdm(
+    #             total=self.total_frames, desc="Loading videos for natural"
+    #         ) as pbar:
+    #             while total_frame_i < self.total_frames:
+    #                 if file_i % len(self.filelist) == 0:
+    #                     random.shuffle(self.filelist)
+    #                 file_i += 1
+    #                 fname = self.filelist[file_i % len(self.filelist)]
+    #                 if self.grayscale:
+    #                     frames = skvideo.io.vread(
+    #                         fname, outputdict={"-pix_fmt": "gray"}
+    #                     )
+    #                 else:
+    #                     frames = skvideo.io.vread(fname)
+    #                 for frame_i in range(frames.shape[0]):
+    #                     if total_frame_i >= self.total_frames:
+    #                         break
+    #                     if self.grayscale:
+    #                         self.arr[total_frame_i] = cv2.resize(
+    #                             frames[frame_i], (self.shape[1], self.shape[0])
+    #                         )[
+    #                             ..., None
+    #                         ]  ## THIS IS NOT A BUG! cv2 uses (width, height)
+    #                     else:
+    #                         self.arr[total_frame_i] = cv2.resize(
+    #                             frames[frame_i], (self.shape[1], self.shape[0])
+    #                         )
+    #                     pbar.update(1)
+    #                     total_frame_i += 1
+    
     def build_arr(self):
         if not self.total_frames:
+            # Strategy A: Load all videos
             self.total_frames = 0
             self.arr = None
             random.shuffle(self.filelist)
-            for fname in tqdm.tqdm(
-                self.filelist, desc="Loading videos for natural", position=0
-            ):
-                if self.grayscale:
-                    frames = skvideo.io.vread(fname, outputdict={"-pix_fmt": "gray"})
-                else:
-                    frames = skvideo.io.vread(fname)
-                local_arr = np.zeros(
-                    (frames.shape[0], self.shape[0], self.shape[1])
-                    + ((3,) if not self.grayscale else (1,))
-                )
-                for i in tqdm.tqdm(
-                    range(frames.shape[0]), desc="video frames", position=1
-                ):
-                    local_arr[i] = cv2.resize(
-                        frames[i], (self.shape[1], self.shape[0])
-                    )  ## THIS IS NOT A BUG! cv2 uses (width, height)
+            video_count = 0  # ADD THIS
+            print(f"Loading ALL videos from {len(self.filelist)} files...")  # ADD THIS
+            
+            for fname in tqdm.tqdm(self.filelist, desc="Loading videos for natural", position=0):
+                video_count += 1  # ADD THIS
+                if self.grayscale: frames = skvideo.io.vread(fname, outputdict={"-pix_fmt": "gray"})
+                else:              frames = skvideo.io.vread(fname)
+                local_arr = np.zeros((frames.shape[0], self.shape[0], self.shape[1]) + ((3,) if not self.grayscale else (1,)))
+                for i in tqdm.tqdm(range(frames.shape[0]), desc="video frames", position=1):
+                    local_arr[i] = cv2.resize(frames[i], (self.shape[1], self.shape[0])) ## THIS IS NOT A BUG! cv2 uses (width, height)
                 if self.arr is None:
                     self.arr = local_arr
                 else:
                     self.arr = np.concatenate([self.arr, local_arr], 0)
                 self.total_frames += local_arr.shape[0]
+                
+            print(f"Strategy A: Loaded {video_count} videos, total {self.total_frames} frames")  # ADD THIS
+            
         else:
-            self.arr = np.zeros(
-                (self.total_frames, self.shape[0], self.shape[1])
-                + ((3,) if not self.grayscale else (1,))
-            )
+            # Strategy B: Load until reaching total_frames
+            self.arr = np.zeros((self.total_frames, self.shape[0], self.shape[1]) + ((3,) if not self.grayscale else (1,)))
             total_frame_i = 0
             file_i = 0
-            with tqdm.tqdm(
-                total=self.total_frames, desc="Loading videos for natural"
-            ) as pbar:
+            video_count = 0  # ADD THIS
+            loaded_videos = set()  # ADD THIS - track unique videos
+            
+            print(f"Loading videos until {self.total_frames} total frames from {len(self.filelist)} available files...")  # ADD THIS
+            
+            with tqdm.tqdm(total=self.total_frames, desc="Loading videos for natural") as pbar:
                 while total_frame_i < self.total_frames:
-                    if file_i % len(self.filelist) == 0:
+                    if file_i % len(self.filelist) == 0: 
                         random.shuffle(self.filelist)
+                        if file_i > 0:  # ADD THIS - don't print on first iteration
+                            print(f"  Cycled through all {len(self.filelist)} files, reshuffling...")  # ADD THIS
+                    
                     file_i += 1
                     fname = self.filelist[file_i % len(self.filelist)]
-                    if self.grayscale:
-                        frames = skvideo.io.vread(
-                            fname, outputdict={"-pix_fmt": "gray"}
-                        )
+                    
+                    # Track video loading  # ADD THIS BLOCK
+                    if fname not in loaded_videos:
+                        loaded_videos.add(fname)
+                        video_count += 1
+                        print(f"  Loading video {video_count}: {os.path.basename(fname)}")
                     else:
-                        frames = skvideo.io.vread(fname)
+                        print(f"  Re-loading video: {os.path.basename(fname)} (already loaded)")
+                    
+                    if self.grayscale: frames = skvideo.io.vread(fname, outputdict={"-pix_fmt": "gray"})
+                    else:              frames = skvideo.io.vread(fname)
+                    
+                    frames_from_this_video = 0  # ADD THIS - track frames per video
                     for frame_i in range(frames.shape[0]):
-                        if total_frame_i >= self.total_frames:
-                            break
+                        if total_frame_i >= self.total_frames: break
                         if self.grayscale:
-                            self.arr[total_frame_i] = cv2.resize(
-                                frames[frame_i], (self.shape[1], self.shape[0])
-                            )[
-                                ..., None
-                            ]  ## THIS IS NOT A BUG! cv2 uses (width, height)
+                            self.arr[total_frame_i] = cv2.resize(frames[frame_i], (self.shape[1], self.shape[0]))[..., None]
                         else:
-                            self.arr[total_frame_i] = cv2.resize(
-                                frames[frame_i], (self.shape[1], self.shape[0])
-                            )
+                            self.arr[total_frame_i] = cv2.resize(frames[frame_i], (self.shape[1], self.shape[0]), )
                         pbar.update(1)
                         total_frame_i += 1
+                        frames_from_this_video += 1  # ADD THIS
+                    
+                    print(f"    Used {frames_from_this_video}/{frames.shape[0]} frames from this video")  # ADD THIS
+            
+            print(f"Strategy B: Loaded {len(loaded_videos)} unique videos (some possibly multiple times)")  # ADD THIS
+            print(f"Total video file accesses: {file_i}")  # ADD THIS
+            print(f"Final frame count: {total_frame_i}")  # ADD THIS
+            
+            # Print summary of loaded videos  # ADD THIS BLOCK
+            print("Loaded video files:")
+            for i, fname in enumerate(sorted(loaded_videos)):
+                print(f"  {i+1}. {os.path.basename(fname)}")
 
     def reset(self):
         self._loc = np.random.randint(0, self.total_frames)

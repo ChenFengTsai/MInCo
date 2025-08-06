@@ -5,17 +5,24 @@ import torch.nn.functional as F
 from torch.distributions import Uniform
 
 _GPU_ID = 0
-_USE_GPU = False
+_USE_GPU = True
 _DEVICE = None
 
 
-def set_gpu_mode(mode, gpu_id=0):
+def set_gpu_mode(mode, gpu_id=0, use_gpu=True):
     global _GPU_ID
     global _USE_GPU
     global _DEVICE
     _GPU_ID = gpu_id
     _USE_GPU = mode
     _DEVICE = torch.device(("cuda:" + str(_GPU_ID)) if _USE_GPU else "cpu")
+    
+    current_device = torch.cuda.current_device()
+    if _USE_GPU:
+        torch.cuda.set_device(gpu_id)  # This is what was missing!
+        
+    current_device = torch.cuda.current_device()
+        
     torch.set_default_tensor_type(
         torch.cuda.FloatTensor if _USE_GPU else torch.FloatTensor
     )
@@ -109,7 +116,9 @@ def random_translate(images, max_delta=0.05, same_across_time=True, bilinear=Tru
     B, T = 50,50
 
     # Convert images to PyTorch tensor
-    images = torch.tensor(images)
+    device = get_device()  # Use the global device
+    images = torch.tensor(images, device=device)
+    
     
     if same_across_time:
         delta = Uniform(-max_delta, max_delta).sample([B, 1, 2]).to(images.device)

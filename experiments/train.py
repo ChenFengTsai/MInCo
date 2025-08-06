@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 import sys
-sys.path.append("/data0/svc4/code/minco")
+sys.path.append("/home/richtsai1103/CRL/minco")
 
 from minco import Dreamer, RePo, MInCo  
 from environments import make_env
@@ -18,13 +18,29 @@ def get_config():
     config.expr_name = "default"
     config.seed = 0
     config.use_gpu = True
-    config.gpu_id = 0
+    config.gpu_id = 1
+    config.logdir = "/storage/ssd1/richtsai1103/iso_ted/log"  # Default value
+    config.size = [64, 64]
+    
+    # TED
+    config.use_ted = True                    # Enable/disable TED
+    config.ted_coefficient_start = 0.0       # Starting coefficient
+    config.ted_coefficient_end = 0.1         # Final coefficient  
+    config.ted_warmup_ratio = 0.2            # Warmup as fraction of total steps
+    config.use_target_encoder = False        # Use target encoder or not
+    config.target_tau = 0.01                 # Target encoder update rate
 
     # Dreamer
     config.pixel_obs = True
-    config.num_steps = 500000
+    config.action_repeat = 2
+    # dmc_video_hard
+    config.num_steps = 500000 // config.action_repeat
+    
+    # original
+    # config.num_steps = 500000
+    
     config.replay_size = 500000
-    config.prefill = 5000
+    config.prefill = 2500
     config.train_every = 500
     config.train_steps = 100
     config.eval_every = 5000
@@ -84,10 +100,10 @@ if __name__ == "__main__":
     config = get_config()
     set_seed(config.seed)
 
-    cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-    # set_device(config.use_gpu, config.gpu_id)
+    # cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    set_device(config.use_gpu, config.gpu_id)
     # cuda_id = cuda_visible_devices.split(',')[0]
-    set_device(config.use_gpu)
+    # set_device(config.use_gpu)
 
     # Logger
     logger = setup_logger(config)
@@ -110,3 +126,5 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("Unsupported algorithm")
     algo.train()
+    # pkill -f wandb
+    # ps aux | grep wandb

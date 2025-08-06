@@ -26,6 +26,7 @@ from .models.encoder import Encoder
 from .models.rssm import TransitionModel
 from .models.utils import bottle, EnsembleDynamicsModel, InverseDynamicsModel
 from .models.simsiam import SimSiam
+from ted import TEDModule
 
 
 class MInCo:
@@ -44,6 +45,10 @@ class MInCo:
             env.action_space.shape,
             obs_type=np.uint8 if config.pixel_obs else np.float32,
         )
+        
+        # Initialize TED module
+        if self.c.use_ted:
+            self.ted_module = TEDModule(config, classifier_type='simple')
 
     def build_models(self, config, env):
         if config.pixel_obs:
@@ -88,32 +93,47 @@ class MInCo:
         self.simsiam = SimSiam(dim=config.embedding_size, pred_dim=256).to(self.device)
         self.criterion = nn.CosineSimilarity(dim=1).to(self.device)
 
+        # Add TED parameters to optimizer
+        self.model_params = (
+            list(self.encoder.parameters())
+            + list(self.transition_model.parameters())
+            + list(self.obs_model.parameters())
+            + list(self.reward_model.parameters())
+            + list(self.simsiam.parameters())
+            + (list(self.ted_module.parameters()) if self.c.use_ted else [])  # Fixed with parentheses
+            + (list(self.inv_dynamics.parameters()) if self.c.cross_inv_dynamics else [])
+        )
 
-        if self.c.cross_inv_dynamics:
-            self.inv_dynamics = InverseDynamicsModel(
-                    config.embedding_size,
-                    action_size,
-                    config.inv_dynamics_hidden_size,
-                    config.dense_activation_function,
-                ).to(self.device)
+        # if self.c.cross_inv_dynamics:
+        #     self.inv_dynamics = InverseDynamicsModel(
+        #             config.embedding_size,
+        #             action_size,
+        #             config.inv_dynamics_hidden_size,
+        #             config.dense_activation_function,
+        #         ).to(self.device)
 
-            self.model_params = (
-                list(self.encoder.parameters())
-                + list(self.transition_model.parameters())
-                + list(self.obs_model.parameters())
-                + list(self.reward_model.parameters())
-                + list(self.simsiam.parameters()) 
-                + list(self.inv_dynamics.parameters())
-            )
+        #     self.model_params = (
+        #         list(self.encoder.parameters())
+        #         + list(self.transition_model.parameters())
+        #         + list(self.obs_model.parameters())
+        #         + list(self.reward_model.parameters())
+        #         + list(self.simsiam.parameters()) 
+        #         + list(self.inv_dynamics.parameters())
+        #     )
+        
+        # else:
+        #     self.model_params = (
+        #         list(self.encoder.parameters())
+        #         + list(self.transition_model.parameters())
+        #         + list(self.obs_model.parameters())
+        #         + list(self.reward_model.parameters())
+        #         + list(self.simsiam.parameters()) 
+        #     )
 
-        else:
-            self.model_params = (
-                list(self.encoder.parameters())
-                + list(self.transition_model.parameters())
-                + list(self.obs_model.parameters())
-                + list(self.reward_model.parameters())
-                + list(self.simsiam.parameters()) 
-            )
+        # Initialize target encoder if needed
+        if self.c.ted_target:
+            self.ted_module.initialize_target_encoder(self.encoder)
+            
         self.model_optimizer = Adam(self.model_params, lr=config.model_lr)
 
         # Actor-critic
@@ -188,7 +208,7 @@ class MInCo:
         obs,
         explore=False,
     ):
-        # Action and observation need extra time dimension
+        
         belief, _, _, _, posterior_state, _, _ = self.transition_model.observe(
             belief,
             posterior_state,
@@ -230,6 +250,7 @@ class MInCo:
         init_state = torch.zeros(self.c.batch_size, self.c.state_size).to(self.device)
         embeds = bottle(self.encoder, (obs,))
         embeds_sim = bottle(self.encoder, (obs_sim,))
+        
         (
             beliefs,
             prior_states,
@@ -291,6 +312,11 @@ class MInCo:
             .mean((0, 1))
         )
         # obs_loss = 1/2*(obs_loss + obs_loss_sim)
+        
+        # Compute TED loss
+        ted_loss, ted_coefficient, ted_metrics = self.ted_module.compute_loss(
+            embeds, nonterms, self.step, self.encoder
+        )
 
         # Reward loss
         # Since we predict rewards from next states, we need to shift reward
@@ -393,10 +419,21 @@ class MInCo:
         else:
             model_loss = obs_loss + reward_loss + kl_loss + simsiam_loss
             
+        if self.c.use_ted:
+            model_loss += ted_coefficient * ted_loss
+            
         self.model_optimizer.zero_grad()
         model_loss.backward()
-        nn.utils.clip_grad_norm_(self.model_params, self.c.grad_clip_norm)
+        nn.utils.clip_grad_norm_(self.model_params, self.c.grad_clip_norm)  
         self.model_optimizer.step()
+        
+        # Update target encoder
+        if self.c.ted_target:        
+            self.ted_module.update_target_encoder(self.encoder)
+            
+        # Log TED metrics
+        for key, value in ted_metrics.items():
+            self.logger.record(f"train/{key}", value)
 
         # Logging
         self.logger.record("train/simsiam_loss",simsiam_loss.item()) 
