@@ -21,9 +21,10 @@ def get_config():
     config.gpu_id = 1
     config.logdir = "/storage/ssd1/richtsai1103/iso_ted/log"  # Default value
     config.size = [64, 64]
+    config.use_wandb = True
     
     # TED
-    config.use_ted = True                    # Enable/disable TED
+    config.use_ted = False                    # Enable/disable TED
     config.ted_coefficient_start = 0.0       # Starting coefficient
     config.ted_coefficient_end = 0.1         # Final coefficient  
     config.ted_warmup_ratio = 0.2            # Warmup as fraction of total steps

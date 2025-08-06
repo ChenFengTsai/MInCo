@@ -26,7 +26,7 @@ from .models.encoder import Encoder
 from .models.rssm import TransitionModel
 from .models.utils import bottle, EnsembleDynamicsModel, InverseDynamicsModel
 from .models.simsiam import SimSiam
-from ted import TEDModule
+from .ted import TEDModule
 
 
 class MInCo:
@@ -38,6 +38,11 @@ class MInCo:
         self.device = get_device()
 
         self.step = 0
+        
+        # Initialize TED module
+        if self.c.use_ted:
+            self.ted_module = TEDModule(config, classifier_type='simple')
+
         self.build_models(config, env)
         self.buffer = SequenceReplayBuffer(
             config.replay_size,
@@ -46,9 +51,7 @@ class MInCo:
             obs_type=np.uint8 if config.pixel_obs else np.float32,
         )
         
-        # Initialize TED module
-        if self.c.use_ted:
-            self.ted_module = TEDModule(config, classifier_type='simple')
+
 
     def build_models(self, config, env):
         if config.pixel_obs:
@@ -93,6 +96,14 @@ class MInCo:
         self.simsiam = SimSiam(dim=config.embedding_size, pred_dim=256).to(self.device)
         self.criterion = nn.CosineSimilarity(dim=1).to(self.device)
 
+        if self.c.cross_inv_dynamics:
+            self.inv_dynamics = InverseDynamicsModel(
+                    config.embedding_size,
+                    action_size,
+                    config.inv_dynamics_hidden_size,
+                    config.dense_activation_function,
+                ).to(self.device)
+            
         # Add TED parameters to optimizer
         self.model_params = (
             list(self.encoder.parameters())
@@ -100,17 +111,10 @@ class MInCo:
             + list(self.obs_model.parameters())
             + list(self.reward_model.parameters())
             + list(self.simsiam.parameters())
-            + (list(self.ted_module.parameters()) if self.c.use_ted else [])  # Fixed with parentheses
+            + (list(self.ted_module.parameters()) if self.c.use_ted else [])  
             + (list(self.inv_dynamics.parameters()) if self.c.cross_inv_dynamics else [])
         )
 
-        # if self.c.cross_inv_dynamics:
-        #     self.inv_dynamics = InverseDynamicsModel(
-        #             config.embedding_size,
-        #             action_size,
-        #             config.inv_dynamics_hidden_size,
-        #             config.dense_activation_function,
-        #         ).to(self.device)
 
         #     self.model_params = (
         #         list(self.encoder.parameters())
@@ -131,7 +135,7 @@ class MInCo:
         #     )
 
         # Initialize target encoder if needed
-        if self.c.ted_target:
+        if self.c.use_target_encoder:
             self.ted_module.initialize_target_encoder(self.encoder)
             
         self.model_optimizer = Adam(self.model_params, lr=config.model_lr)
@@ -314,9 +318,10 @@ class MInCo:
         # obs_loss = 1/2*(obs_loss + obs_loss_sim)
         
         # Compute TED loss
-        ted_loss, ted_coefficient, ted_metrics = self.ted_module.compute_loss(
-            embeds, nonterms, self.step, self.encoder
-        )
+        if self.c.use_ted:
+            ted_loss, ted_coefficient, ted_metrics = self.ted_module.compute_loss(
+                embeds, nonterms, self.step, self.encoder
+            )
 
         # Reward loss
         # Since we predict rewards from next states, we need to shift reward
@@ -428,12 +433,13 @@ class MInCo:
         self.model_optimizer.step()
         
         # Update target encoder
-        if self.c.ted_target:        
+        if self.c.use_target_encoder:        
             self.ted_module.update_target_encoder(self.encoder)
             
         # Log TED metrics
-        for key, value in ted_metrics.items():
-            self.logger.record(f"train/{key}", value)
+        if self.c.use_ted:
+            for key, value in ted_metrics.items():
+                self.logger.record(f"train/{key}", value)
 
         # Logging
         self.logger.record("train/simsiam_loss",simsiam_loss.item()) 

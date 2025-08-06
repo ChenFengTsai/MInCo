@@ -214,22 +214,26 @@ def setup_logger(config):
             tags.append("cross_inv_dynamics")
     
     # Initialize WANDB
-    print("Initializing wandb...")
-    wandb.init(
-        project=f"dmc-{config.algo}",
-        entity=os.environ.get("MY_WANDB_ID", None),
-        name=name,
-        group=f"{full_task}_{config.expr_name}",
-        job_type=config.expr_name,
-        tags=tags,
-        config=config,
-    )
-    
-    print(f"✓ Wandb initialized. Run dir: {wandb.run.dir}")
+    if config.use_wandb:
+        print("Initializing wandb...")
+        wandb.init(
+            project=f"dmc-{config.algo}",
+            entity=os.environ.get("MY_WANDB_ID", None),
+            name=name,
+            group=f"{full_task}_{config.expr_name}",
+            job_type=config.expr_name,
+            tags=tags,
+            config=config,
+        )
+        
+        print(f"✓ Wandb initialized. Run dir: {wandb.run.dir}")
     
     # Configure logger
-    logger = configure_logger(logdir, ["stdout", "tensorboard", "wandb"])
-    # logger = configure_logger(logdir, ["stdout", "tensorboard"])
+    if config.use_wandb:
+        logger = configure_logger(logdir, ["stdout", "tensorboard", "wandb"])
+    else:
+        logger = configure_logger(logdir, ["stdout", "tensorboard"])
+        
     config.training_log_dir = logdir
 
     # Log experiment info
@@ -239,6 +243,7 @@ def setup_logger(config):
     
     print(f"✓ Logger setup complete!")
     print(f"  Logs saved to: {logdir}")
-    print(f"  Wandb saved to: {wandb.run.dir}")
+    if config.use_wandb:
+        print(f"  Wandb saved to: {wandb.run.dir}")
     
     return logger
